@@ -1,11 +1,3 @@
-# Terms:
-# "build" - Compile web project using webpack.
-# "package" - Produce a distributive package for a specific platform as a workflow artifact.
-# "publish" - Send a package to corresponding store and GitHub release page.
-# "release" - build + package + publish
-#
-# Jobs in this workflow will skip the "publish" step when `PUBLISH_REPO` is not set.
-
 name: Package and publish
 
 on:
@@ -42,9 +34,20 @@ jobs:
         if: steps.npm-cache.outputs.cache-hit != 'true'
         run: npm ci
 
+      # 新增一个步骤来检查 MacOS 签名 Secrets 是否存在
+      - name: Check for MacOS signing secrets
+        id: check_macos_secrets
+        run: |
+          # 检查 Secret 是否为非空字符串
+          if [[ -n "${{ secrets.APPLE_CERTIFICATE_BASE64 }}" && -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ]]; then
+            echo "SIGNING_SECRETS_AVAILABLE=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "SIGNING_SECRETS_AVAILABLE=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import MacOS signing certificate
-        # 添加了这个 'if' 条件
-        if:  secrets.APPLE_CERTIFICATE_BASE64 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' 
+        # 现在 'if' 条件判断的是前一个步骤的输出
+        if: steps.check_macos_secrets.outputs.SIGNING_SECRETS_AVAILABLE == 'true'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -68,7 +71,6 @@ jobs:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
 
-          # 这两个 Secrets 现在只有在上面 if 条件满足时才会在签名步骤中使用
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
