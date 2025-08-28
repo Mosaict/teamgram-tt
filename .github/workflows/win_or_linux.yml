@@ -1,3 +1,11 @@
+# Terms:
+# "build" - Compile web project using webpack.
+# "package" - Produce a distributive package for a specific platform as a workflow artifact.
+# "publish" - Send a package to corresponding store and GitHub release page.
+# "release" - build + package + publish
+#
+# Jobs in this workflow will skip the "publish" step when `PUBLISH_REPO` is not set.
+
 name: Package and publish
 
 on:
@@ -11,7 +19,7 @@ env:
 jobs:
   electron-release:
     name: Build, package and publish Electron
-    # 将这里从 macOS-latest 改为 windows-latest
+    # *** 关键修改：更改运行器为 Windows ***
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -35,22 +43,8 @@ jobs:
         if: steps.npm-cache.outputs.cache-hit != 'true'
         run: npm ci
 
-      # 这个步骤现在可以完全删掉或者保留，反正不会执行因为 runner 是 Windows
-      # 但为了清晰和我之前提供的方法，我可以把它注释掉或者移除，因为你在Windows上不需要macOS签名
-      # 如果你希望保留以备将来改回macOS runner，可以这样：
-      # - name: Check for MacOS signing secrets
-      #   id: check_macos_secrets
-      #   run: |
-      #     echo "SIGNING_SECRETS_AVAILABLE=false" >> "$GITHUB_OUTPUT" # 在Windows上，强制设置为false
-
-      # - name: Import MacOS signing certificate
-      #   if: steps.check_macos_secrets.outputs.SIGNING_SECRETS_AVAILABLE == 'true'
-      #   env:
-      #     APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      #   run: |
-      #     # This step will always be skipped on a Windows runner.
-      #     echo "Skipping macOS signing on Windows runner."
+      # *** 删除 macOS 签名相关的步骤 ***
+      # 由于 runner 变为 Windows，macOS 签名不再适用，因此删除了 `Check for MacOS signing secrets` 和 `Import MacOS signing certificate` 步骤。
 
       - name: Get branch name for current workflow run
         id: branch-name
@@ -61,7 +55,7 @@ jobs:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
 
-          # 这两个 Secrets 现在只有在上面 if 条件满足时才会在签名步骤中使用
+          # 这两个由于不再构建macOS，暂时用不到了，但env中保留无害
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
@@ -69,8 +63,6 @@ jobs:
           PUBLISH_REPO: ${{ vars.PUBLISH_REPO }}
           BASE_URL: ${{ vars.BASE_URL }}
           IS_PREVIEW: ${{ steps.branch-name.outputs.current_branch != 'master' }}
-        # 你的 npm 脚本需要确保在 Windows 上构建 Windows 和 Linux 包
-        # 比如： "electron:package:staging": "electron-builder --win --linux"
         run: |
           if [ -z "$PUBLISH_REPO" ]; then
             npm run electron:package:staging
@@ -78,8 +70,7 @@ jobs:
             npm run electron:release:production
           fi
 
-      # 更改对应的 artifact 上传路径
-      # macOS 的 DMG 文件现在将不会生成，所以删除或注释掉
+      # *** 删除 macOS 包的 artifact 上传 ***
       # - uses: actions/upload-artifact@v4
       #   with:
       #     name: ${{ env.APP_NAME }}-x64.dmg
@@ -90,15 +81,17 @@ jobs:
       #     name: ${{ env.APP_NAME }}-arm64.dmg
       #     path: dist-electron/${{ env.APP_NAME }}-arm64.dmg
 
+      # 保持 Linux AppImage 的上传
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-x86_64.AppImage
-          path: dist-electron/${{ env.APP_NAME }}-x86_64.AppImage
+          path: dist-electron/${{ env.APP_NAME }}-x86_64.AppImage.* # 注意：AppImage 文件名可能包含版本号，用通配符更健壮
 
+      # 保持 Windows exe 的上传
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-x64.exe
-          path: dist-electron/${{ env.APP_NAME }}-x64.exe
+          path: dist-electron/${{ env.APP_NAME }}-x64.exe # 注意：exe 文件名可能也包含版本号，或者安装程序名称
 
   electron-sign-for-windows:
     name: Sign and re-publish Windows package
@@ -146,7 +139,7 @@ jobs:
         id: download-artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.FILE_NAME }}
+          name: ${{ env.APP_NAME }}-x64.exe # 确保 artifact name 和上面 upload 的一致
 
       - name: Sign package
         env:
